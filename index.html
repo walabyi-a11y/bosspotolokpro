@@ -133,11 +133,11 @@ render();
 <script>
 (()=>{
 const app=document.getElementById('proApp'),key='boss-potolok-pro-measurements-v2';
-let obj=null,idx=-1,room=null,closed=false,settingsOpen=false;
+let obj=null,idx=-1,room=null,closed=false,settingsOpen=false;let diagonalFirst=-1;
 const roomNamesDefault=['Кухня','Спальня','Детская','Коридор','Прихожая','Ванная','Туалет','Кабинет','Постирочная','Гардероб','Балкон','Лоджия'];
 const catalogKey='boss-potolok-pro-catalog-v1',namesKey='boss-potolok-pro-room-names-v1';
 const loadArray=(k,def=[])=>{try{let v=JSON.parse(localStorage.getItem(k)||'null');return v!==null&&typeof v==='object'&&(Array.isArray(def)?Array.isArray(v):!Array.isArray(v))?v:def}catch{return def}};
-let zoomView={x:0,y:0,w:1000,h:1000};
+let zoomView={x:0,y:0,w:1000,h:1000},lastFittedRoom=null;
 let editMode='draw',gridVisible=true,selectedVertex=-1,measureStart=null,history=[],future=[],dragState=null;
 const snapshot=()=>JSON.stringify({pts:room.pts||[],closed:!!room.closed,lengths:room.lengths||[],diags:room.diags||[],allRight:!!room.allRight,features:room.features||[],angles:room.angles||{}});
 function remember(){if(!room)return;history.push(snapshot());if(history.length>80)history.shift();future=[]}
@@ -145,6 +145,38 @@ function restoreSnapshot(s){let v=JSON.parse(s);Object.assign(room,v);closed=!!r
 function undoAction(){if(!history.length)return;future.push(snapshot());restoreSnapshot(history.pop())}
 function redoAction(){if(!future.length)return;history.push(snapshot());restoreSnapshot(future.pop())}
 function snapRight(v){let pts=room.pts||[];if(!room.allRight||!pts.length)return v;let prev=pts[pts.length-1],dx=v[0]-prev[0],dy=v[1]-prev[1];if(pts.length===1)return Math.abs(dx)>=Math.abs(dy)?[v[0],prev[1]]:[prev[0],v[1]];let before=pts[pts.length-2],horizontal=Math.abs(prev[0]-before[0])>=Math.abs(prev[1]-before[1]);return horizontal?[prev[0],v[1]]:[v[0],prev[1]]}
+let angleAction='';
+function angleMenu(){
+ let wrap=document.createElement('div');wrap.className='angle-menu';
+ let tip=document.createElement('p');tip.className='muted';tip.textContent='Выберите действие, затем укажите нужную вершину или сторону на чертеже.';wrap.append(tip);
+ let d=modal('Угол',wrap,dlg=>dlg.remove());d.querySelector('.actions').innerHTML='';
+ [['＋ Добавить угол','add'],['− Удалить угол','remove'],['∠ Параметры угла','params']].forEach(([title,mode])=>wrap.append(b(title,()=>{angleAction=mode;editMode='angle';d.remove();roomPage()})));
+ d.querySelector('.actions').append(b('Закрыть',()=>d.remove()));
+}
+function angleChosenVertex(i){
+ if(angleAction==='remove'){
+  if(room.pts.length<=3)return alert('Нельзя оставить меньше трёх вершин');
+  remember();room.pts.splice(i,1);room.lengths=[];room.diags=[];room.angles={};selectedVertex=-1;
+  storeRoom();angleAction='';editMode='select';angleAction='';roomPage();return;
+ }
+ if(angleAction==='params'){
+  selectedVertex=i;let a=room.pts[(i-1+room.pts.length)%room.pts.length],v=room.pts[i],c=room.pts[(i+1)%room.pts.length];
+  let u=[a[0]-v[0],a[1]-v[1]],w=[c[0]-v[0],c[1]-v[1]],cos=(u[0]*w[0]+u[1]*w[1])/(Math.hypot(...u)*Math.hypot(...w)||1);
+  let measured=Math.acos(Math.max(-1,Math.min(1,cos)))*180/Math.PI;
+  let [label,input]=field('Угол '+letters[i]+', градусы',room.angles?.[i]?.degrees||Math.round(measured),'number');input.min='1';input.max='359';input.step='any';
+  let d=modal('Параметры угла '+letters[i],label,dlg=>{let n=Number(input.value);if(!(n>0&&n<360))return alert('Укажите значение от 1 до 359°');remember();room.angles??={};room.angles[i]={degrees:n};storeRoom();dlg.remove();angleAction='';editMode='select';angleAction='';roomPage()});
+  let msg=document.createElement('p');msg.className='muted';msg.textContent='Значение сохраняется как параметр. Автоматический поворот соседних сторон пока не реализован.';d.querySelector('.content').append(msg);
+  d.querySelector('.actions').append(b('Отмена',()=>{d.remove();angleAction='';editMode='select';angleAction='';roomPage()}));
+ }
+}
+function angleChosenSide(i){
+ if(angleAction!=='add')return;
+ let v=room.pts[i],q=room.pts[(i+1)%room.pts.length];remember();
+ room.pts.splice(i+1,0,[(v[0]+q[0])/2,(v[1]+q[1])/2]);
+ // The original contour remains connected; invalidate measured dimensions because the side was split.
+ room.lengths=[];room.diags=[];room.angles={};selectedVertex=i+1;
+ storeRoom();angleAction='';editMode='select';angleAction='';roomPage();
+}
 function featureModal(kind){let wrap=document.createElement('div'),note=document.createElement('p');note.className='muted';note.textContent=kind==='cutout'?'Внутренний вырез пока отображается как условный элемент и не вычитается из площади. Для точной сметы требуется геометрия выреза.':kind==='cornice'?'Укажите длину карниза и комментарий.':'Угол сохраняется как пометка. Геометрическое изменение по градусам будет добавлено позже.';wrap.append(note);let fields=[];let defs=kind==='angle'?[['Угол, градусы','90'],['Радиус скругления, см','0'],['Вырез угла, см','0']]:kind==='cutout'?[['Ширина, см',''],['Высота, см','']]:[['Длина, см',''],['Примечание','']];defs.forEach(([label,val])=>{let [l,i]=field(label,val,label==='Примечание'?'text':'number');fields.push(i);wrap.append(l)});let d=modal(kind==='angle'?'Угол':kind==='cutout'?'Вырез в потолке':'Карниз',wrap,dlg=>{let vals=fields.map(x=>x.value);if(kind==='angle'){if(selectedVertex<0)return alert('Сначала выберите вершину инструментом «Правка»');let a=Number(vals[0]);if(!(a>0&&a<360))return alert('Укажите угол от 1 до 359 градусов');remember();room.angles??={};room.angles[selectedVertex]={degrees:a,round:Number(vals[1])||0,notch:Number(vals[2])||0};}else{if(!(Number(vals[0])>0))return alert('Введите размер');remember();room.features??=[];room.features.push({kind,values:vals,at:[500,500]})}dlg.remove();storeRoom();roomPage()});if(kind==='angle'){let actions=d.querySelector('.actions');actions.append(b('Добавить вершину',()=>{if(!room.pts?.length)return;remember();let i=selectedVertex>=0?selectedVertex:room.pts.length-1,q=room.pts[(i+1)%room.pts.length],v=room.pts[i];room.pts.splice(i+1,0,[(v[0]+q[0])/2,(v[1]+q[1])/2]);room.closed=false;room.lengths=[];room.diags=[];d.remove();storeRoom();roomPage()}),b('Удалить вершину',()=>{if(selectedVertex<0)return alert('Выберите вершину');if(room.pts.length<=3)return alert('Минимум три вершины');remember();room.pts.splice(selectedVertex,1);room.lengths=[];room.diags=[];room.closed=false;d.remove();storeRoom();roomPage()}))}}
 
 const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ',f=n=>Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
@@ -167,7 +199,32 @@ function storeRoom(){if(!room)return;obj.rooms??=[];if(idx<0){idx=obj.rooms.leng
 function leaveRoom(){storeRoom();objectPage()}
 function editDimensions(){let names=room.shape==='rect'?['Сторона A–B, см','Сторона B–C, см']:room.shape==='oval'?['Большая ось, см','Малая ось, см']:['Диаметр, см'];let box=document.createElement('div'),inputs=[];names.forEach((t,i)=>{let [l,v]=field(t,room.lengths[i]||'','number');v.step='any';inputs.push(v);box.append(l)});modal('Размеры потолка',box,d=>{let vals=inputs.map(x=>Number(x.value));if(vals.some(v=>!(v>0)))return alert('Введите положительные размеры');room.lengths=vals;d.remove();storeRoom();roomPage()});setTimeout(()=>inputs[0]?.focus(),50)}
 function editSide(i){let [l,v]=field('Длина стороны '+letters[i]+'–'+letters[(i+1)%room.pts.length]+', см',room.lengths[i]||'','number');v.step='any';let d=modal('Сторона '+letters[i]+'–'+letters[(i+1)%room.pts.length],l,dlg=>{if(!(Number(v.value)>0))return alert('Введите длину больше нуля');room.lengths[i]=Number(v.value);dlg.remove();storeRoom();roomPage();if(i<room.pts.length-1)editSide(i+1)});v.onkeydown=e=>{if(e.key==='Enter')d.querySelector('.primary').click()};setTimeout(()=>v.focus(),40)}
-function addDiagonal(){if(!closed||room.pts.length<4)return alert('Сначала замкните многоугольник');let box=document.createElement('div'),fields=[];[['Первая вершина (номер)','1'],['Вторая вершина (номер)','3'],['Длина диагонали, см','']].forEach(([t,val])=>{let [l,v]=field(t,val,'number');box.append(l);fields.push(v)});modal('Контрольная диагональ',box,d=>{let [i,j,v]=fields.map(x=>Number(x.value));i--;j--;if(i<0||j<0||i>=room.pts.length||j>=room.pts.length||i===j||Math.abs(i-j)===1||Math.abs(i-j)===room.pts.length-1||!(v>0))return alert('Выберите несоседние вершины и длину');room.diags??=[];room.diags=room.diags.filter(z=>!(z.i===i&&z.j===j||z.i===j&&z.j===i));room.diags.push({i,j,v});d.remove();storeRoom();roomPage()})}
+function addDiagonal(){
+ if(!closed||room.pts.length<4)return alert('Сначала замкните многоугольник (минимум четыре вершины)');
+ editMode='diagonal';diagonalFirst=-1;roomPage();
+}
+function selectDiagonalVertex(i){
+ if(editMode!=='diagonal')return;
+ if(diagonalFirst<0){diagonalFirst=i;roomPage();return}
+ let j=i,first=diagonalFirst,n=room.pts.length;
+ if(j===first)return;
+ if(Math.abs(first-j)===1||Math.abs(first-j)===n-1){alert('Диагональ соединяет несоседние углы. Выберите другую вершину.');return}
+ diagonalFirst=-1;
+ let existing=(room.diags||[]).find(z=>(z.i===first&&z.j===j)||(z.i===j&&z.j===first));
+ let [label,input]=field('Длина диагонали '+letters[first]+'–'+letters[j]+', см',existing?.v||'','number');
+ input.step='any';input.min='0.01';
+ let dlg=modal('Диагональ '+letters[first]+'–'+letters[j],label,d=>{
+  let length=Number(input.value);
+  if(!(length>0)||!Number.isFinite(length))return alert('Введите положительную длину в сантиметрах');
+  remember();room.diags??=[];
+  room.diags=room.diags.filter(z=>!((z.i===first&&z.j===j)||(z.i===j&&z.j===first)));
+  room.diags.push({i:first,j,v:length});
+  d.remove();editMode='diagonal';storeRoom();roomPage();
+ });
+ input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();dlg.querySelector('.actions .primary').click()}});
+ setTimeout(()=>input.focus(),30);
+}
+
 function addItems(){let d=document.createElement('div');d.className='proModal';d.innerHTML='<div class="proBox" style="max-height:90dvh;overflow:auto"><h2>Работы и материалы</h2><div class="content"></div><div class="actions"></div></div>';app.append(d);let c=d.querySelector('.content');let tabs=document.createElement('div');tabs.className='actions';let list=document.createElement('div');c.append(tabs,list);let current='Работы';function renderItems(){tabs.innerHTML='';['Работы','Материалы'].forEach(x=>tabs.append(b(x,()=>{current=x;renderItems()},x===current?'primary':'')));list.innerHTML='';(room.items||[]).filter(x=>x.kind===current).forEach(x=>{let row=document.createElement('div');row.className='lineitem';row.textContent=x.name+' · '+x.qty+' '+x.unit+' × '+f(x.price)+' ₽';row.append(b('×',()=>{room.items.splice(room.items.indexOf(x),1);storeRoom();renderItems()}));list.append(row)})}renderItems();let add=b('+ Свободная позиция',()=>{let form=document.createElement('div'),fs=[];[['Наименование',''],['Единица измерения','шт.'],['Количество','1'],['Цена за единицу, ₽','0']].forEach(([t,v],i)=>{let [l,input]=field(t,v,i>1?'number':'text');form.append(l);fs.push(input)});modal('Новая позиция · '+current,form,dlg=>{let [name,unit,qty,price]=fs.map(x=>x.value);if(!name.trim()||!(Number(qty)>0)||Number(price)<0)return alert('Заполните наименование, количество и цену');room.items??=[];room.items.push({kind:current,name,unit,qty:Number(qty),price:Number(price)});storeRoom();dlg.remove();renderItems()})});c.append(add);d.querySelector('.actions').append(b('Готово',()=>{d.remove();roomPage()},'primary'))}
 function chooseFromList(title,options,current,onSelect,customKey){
  let box=document.createElement('div'),filter=document.createElement('input');filter.placeholder='Поиск или новое название';filter.autocomplete='off';box.append(filter);
@@ -193,14 +250,40 @@ function roomPage(){let body=head('Редактор помещения',leaveRoo
  group('ИСТОРИЯ');tool.append(b('↶ Отменить',undoAction),b('↷ Вернуть',redoAction));
  group('РЕДАКТОР');
  if(room.shape==='poly'){
-  tool.append(b('✎ Построить',()=>{editMode='draw';roomPage()},editMode==='draw'?'tool-active':''),b('↖ Правка',()=>{editMode='select';roomPage()},editMode==='select'?'tool-active':''),b('📐 Угол',()=>{if(selectedVertex<0){editMode='select';alert('Выберите вершину на чертеже, затем снова нажмите «Угол»');roomPage();return}featureModal('angle')}),b('📏 Стороны',()=>{if(!closed)return alert('Замкните контур');editSide(0)}),b('⤢ Диагональ',addDiagonal),b(room.allRight?'☑ 90°':'□ 90°',()=>{remember();room.allRight=!room.allRight;storeRoom();roomPage()},room.allRight?'tool-active':''));
+  tool.append(b('✎ Построить',()=>{editMode='draw';angleAction='';roomPage()},editMode==='draw'?'tool-active':''),b('↖ Правка',()=>{editMode='select';angleAction='';roomPage()},editMode==='select'?'tool-active':''),b('📐 Угол',angleMenu,editMode==='angle'?'tool-active':''),b('📏 Стороны',()=>{if(!closed)return alert('Замкните контур');editSide(0)}),b('⤢ Диагональ',addDiagonal,editMode==='diagonal'?'tool-active':''),b(room.allRight?'☑ 90°':'□ 90°',()=>{remember();room.allRight=!room.allRight;storeRoom();roomPage()},room.allRight?'tool-active':''));
  }else tool.append(b('📏 Размеры',editDimensions));
  tool.append(b('📐 Линейка',()=>{editMode='ruler';measureStart=null;roomPage()},editMode==='ruler'?'tool-active':''),b('▦ Сетка',()=>{gridVisible=!gridVisible;roomPage()},gridVisible?'tool-active':''));
- group('МАСШТАБ');tool.append(b('＋',()=>zoomAt(.8)),b('－',()=>zoomAt(1.25)),b('⊡ Сброс',()=>{zoomView={x:0,y:0,w:1000,h:1000};applyView()}));
+ group('МАСШТАБ');tool.append(b('＋',()=>zoomAt(.8)),b('－',()=>zoomAt(1.25)),b('⊡ Сброс',()=>fitDrawing()));
  group('ОБЪЕКТЫ');tool.append(b('▣ Вырез',()=>featureModal('cutout')),b('▤ Карниз',()=>featureModal('cornice')),b('⌫ Удалить',()=>{if(room.shape!=='poly'||selectedVertex<0)return alert('Выберите вершину в режиме «Правка»');if(room.pts.length<=3)return alert('Нельзя удалить: останется меньше трёх вершин');remember();room.pts.splice(selectedVertex,1);room.closed=false;room.lengths=[];room.diags=[];selectedVertex=-1;storeRoom();roomPage()}));
  let svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 1000 1000');svg.setAttribute('preserveAspectRatio','xMidYMid meet');canvas.append(svg);canvas.classList.toggle('no-grid',!gridVisible);
  let info=document.createElement('div');info.className='work-info';main.append(info);
  function applyView(){svg.setAttribute('viewBox',[zoomView.x,zoomView.y,zoomView.w,zoomView.h].join(' '))}
+ // Fit actual geometry (not the old 0..1000 canvas) into the unobstructed drawing area.
+ function fitDrawing(){
+  const r=canvas.getBoundingClientRect(),toolbar=tool.getBoundingClientRect();
+  const leftReserve=Math.max(0,Math.min(r.width*.42,toolbar.right-r.left+12));
+  const rightReserve=18,topReserve=18,bottomReserve=18;
+  const usableW=Math.max(100,r.width-leftReserve-rightReserve),usableH=Math.max(100,r.height-topReserve-bottomReserve);
+  let bounds;
+  if(room.shape==='poly' && (room.pts||[]).length){
+   const geo=geom(room),pp=geo.ok&&geo.points?.length?geo.points:room.pts;
+   const xs=pp.map(p=>p[0]),ys=pp.map(p=>p[1]);
+   bounds={x:Math.min(...xs),y:Math.min(...ys),w:Math.max(...xs)-Math.min(...xs),h:Math.max(...ys)-Math.min(...ys)};
+  }else if(room.lengths?.[0]>0){
+   const w=Number(room.lengths[0]),h=room.shape==='circle'?w:Number(room.lengths[1]);
+   if(h>0){const scale=650/Math.max(w,h);bounds={x:500-w*scale/2,y:500-h*scale/2,w:w*scale,h:h*scale}}
+  }
+  if(!bounds){bounds={x:250,y:250,w:500,h:500}}
+  // 15% whitespace around the entire contour, with extra space for side labels.
+  const bw=Math.max(90,bounds.w+50),bh=Math.max(90,bounds.h+50);
+  const unitPerPixel=Math.max(bw/(usableW*.7),bh/(usableH*.7));
+  const vw=Math.max(100,unitPerPixel*r.width),vh=Math.max(100,unitPerPixel*r.height);
+  const centerX=bounds.x+bounds.w/2,centerY=bounds.y+bounds.h/2;
+  const targetScreenX=leftReserve+usableW/2,targetScreenY=topReserve+usableH/2;
+  zoomView={x:centerX-targetScreenX/r.width*vw,y:centerY-targetScreenY/r.height*vh,w:vw,h:vh};
+  applyView();
+ }
+
  function zoomAt(factor,clientX,clientY){let r=svg.getBoundingClientRect(),cx=clientX??r.left+r.width/2,cy=clientY??r.top+r.height/2,point=svg.createSVGPoint();point.x=cx;point.y=cy;let p=point.matrixTransform(svg.getScreenCTM().inverse());let nw=Math.max(50,Math.min(5000,zoomView.w*factor)),nh=nw;let relx=(p.x-zoomView.x)/zoomView.w,rely=(p.y-zoomView.y)/zoomView.h;zoomView={x:p.x-relx*nw,y:p.y-rely*nh,w:nw,h:nh};applyView()}
  applyView();canvas.addEventListener('wheel',e=>{e.preventDefault();zoomAt(e.deltaY<0?.88:1.12,e.clientX,e.clientY)},{passive:false});
  let pan=null,moved=false,suppressClick=false;
@@ -209,10 +292,11 @@ function roomPage(){let body=head('Редактор помещения',leaveRoo
  svg.addEventListener('pointerup',e=>{if(!pan)return;pan=null;canvas.classList.remove('is-panning');if(moved){suppressClick=true;setTimeout(()=>suppressClick=false,50);moved=false}});
  svg.addEventListener('contextmenu',e=>e.preventDefault());
 const add=(tag,attrs,txt)=>{let el=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));if(txt!==undefined)el.textContent=txt;svg.append(el);return el};
-let g=geom(room),pts=room.shape==='poly'?(g.ok?g.points:room.pts):g.points||[];if(room.shape==='poly'){if(pts.length){let xs=pts.map(v=>v[0]),ys=pts.map(v=>v[1]),minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);let transformed=pts; /* keep drawing and hit-test in the same SVG coordinate system */add('polyline',{points:transformed.map(v=>v.join(',')).join(' ')+(closed?' '+transformed[0].join(','):''),fill:closed?'#edf4f2':'none',stroke:'#30343b','stroke-width':3,'pointer-events':'none'});transformed.forEach((p,i)=>{let dot=add('circle',{cx:p[0],cy:p[1],r:editMode==='select'?12:6,fill:i===selectedVertex?'#0a9473':'#30343b',class:'vertex-dot'});dot.addEventListener('pointerdown',e=>{if(editMode!=='select')return;e.stopPropagation();selectedVertex=i;dragState={i,old:snapshot(),moved:false};dot.setPointerCapture(e.pointerId)});dot.addEventListener('pointermove',e=>{if(!dragState||dragState.i!==i)return;let pp=svg.createSVGPoint();pp.x=e.clientX;pp.y=e.clientY;let v=pp.matrixTransform(svg.getScreenCTM().inverse());room.pts[i]=[v.x,v.y];dragState.moved=true;dot.setAttribute('cx',v.x);dot.setAttribute('cy',v.y)});dot.addEventListener('pointerup',e=>{if(!dragState)return;if(dragState.moved){history.push(dragState.old);future=[];room.lengths=[];room.diags=[];room.closed=false;storeRoom()}dragState=null;roomPage()});dot.addEventListener('click',e=>{if(editMode==='select'){e.stopPropagation();selectedVertex=i;roomPage()}});add('text',{x:p[0]+9,y:p[1]-9,'font-size':22,fill:'#30343b','pointer-events':'none'},letters[i]);if(closed){let q=transformed[(i+1)%transformed.length],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;add('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'transparent','stroke-width':32}).addEventListener('click',e=>{e.stopPropagation();editSide(i)});if(room.lengths[i]){add('rect',{x:mx-25,y:my-17,width:50,height:30,fill:'white','pointer-events':'none'});add('text',{x:mx,y:my+5,'text-anchor':'middle','font-size':20,fill:'#555','pointer-events':'none'},f(room.lengths[i]))}}});(room.diags||[]).forEach(z=>{let p=transformed[z.i],q=transformed[z.j];if(p&&q){add('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'#888','stroke-dasharray':'7 7','stroke-width':2,'pointer-events':'none'});add('text',{x:(p[0]+q[0])/2,y:(p[1]+q[1])/2,'font-size':18,fill:'#777','pointer-events':'none'},f(z.v))}})}info.textContent=g.ok?'S: '+f(g.area)+' м² · P: '+f(g.per)+' м':g.message||'Нажимайте в любой точке поля. Замкните контур нажатием на A.';
+let g=geom(room),pts=room.shape==='poly'?(g.ok?g.points:room.pts):g.points||[];if(room.shape==='poly'){if(pts.length){let xs=pts.map(v=>v[0]),ys=pts.map(v=>v[1]),minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);let transformed=pts; /* keep drawing and hit-test in the same SVG coordinate system */let outline=add('polyline',{points:transformed.map(v=>v.join(',')).join(' ')+(closed?' '+transformed[0].join(','):''),fill:closed?'#edf4f2':'none',stroke:'#30343b','stroke-width':3,'pointer-events':'none'});let vertexDots=[],vertexNames=[],sideHits=[],sideLabels=[];function refreshDraggedContour(){let p=room.pts;outline.setAttribute('points',p.map(v=>v.join(',')).join(' ')+(closed?' '+p[0].join(','):''));p.forEach((v,j)=>{vertexDots[j]?.setAttribute('cx',v[0]);vertexDots[j]?.setAttribute('cy',v[1]);vertexNames[j]?.setAttribute('x',v[0]+9);vertexNames[j]?.setAttribute('y',v[1]-9);if(closed){let q=p[(j+1)%p.length],hit=sideHits[j],lab=sideLabels[j];if(hit){hit.setAttribute('x1',v[0]);hit.setAttribute('y1',v[1]);hit.setAttribute('x2',q[0]);hit.setAttribute('y2',q[1])}if(lab){let dx=q[0]-v[0],dy=q[1]-v[1],len=Math.hypot(dx,dy)||1;lab.setAttribute('x',(v[0]+q[0])/2-dy/len*17);lab.setAttribute('y',(v[1]+q[1])/2+dx/len*17+4)}}})}transformed.forEach((p,i)=>{let dot=add('circle',{cx:p[0],cy:p[1],r:editMode==='select'||editMode==='diagonal'||editMode==='angle'?12:6,fill:i===diagonalFirst&&editMode==='diagonal'?'#e18b21':i===selectedVertex?'#0a9473':'#30343b',class:'vertex-dot'});vertexDots[i]=dot;dot.addEventListener('pointerdown',e=>{if(editMode==='diagonal'){e.stopPropagation();return}if(editMode!=='select')return;e.stopPropagation();e.preventDefault();selectedVertex=i;dragState={i,old:snapshot(),moved:false,pointerId:e.pointerId};dot.setPointerCapture(e.pointerId)});dot.addEventListener('pointermove',e=>{if(!dragState||dragState.i!==i)return;let pp=svg.createSVGPoint();pp.x=e.clientX;pp.y=e.clientY;let v=pp.matrixTransform(svg.getScreenCTM().inverse());if(!dragState.moved){room.pts=transformed.map(q=>[...q]);room.lengths=[];room.diags=[]}room.pts[i]=[v.x,v.y];dragState.moved=true;refreshDraggedContour()});dot.addEventListener('pointerup',e=>{if(!dragState)return;if(dragState.moved){history.push(dragState.old);future=[];room.lengths=[];room.diags=[];room.closed=closed;storeRoom()}dragState=null;roomPage()});dot.addEventListener('pointercancel',()=>{if(dragState){dragState=null;roomPage()}});dot.addEventListener('click',e=>{if(editMode==='diagonal'){e.stopPropagation();selectDiagonalVertex(i);return}if(editMode==='angle'){e.stopPropagation();angleChosenVertex(i);return}if(editMode==='select'){e.stopPropagation();selectedVertex=i;roomPage()}});vertexNames[i]=add('text',{x:p[0]+9,y:p[1]-9,'font-size':13,fill:'#30343b','pointer-events':'none'},letters[i]);if(closed){let q=transformed[(i+1)%transformed.length],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;let dx=q[0]-p[0],dy=q[1]-p[1],len=Math.hypot(dx,dy)||1;let lx=mx-dy/len*17,ly=my+dx/len*17;sideHits[i]=add('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'transparent','stroke-width':32,'pointer-events':editMode==='select'||editMode==='angle'&&angleAction!=='add'?'none':'stroke'});sideHits[i].addEventListener('click',e=>{if(editMode==='angle'&&angleAction==='add'){e.stopPropagation();angleChosenSide(i);return}if(editMode!=='draw')return;e.stopPropagation();editSide(i)});if(room.lengths[i]){sideLabels[i]=add('text',{x:lx,y:ly+4,'text-anchor':'middle','font-size':13,fill:'#555',stroke:'#fff','stroke-width':4,'paint-order':'stroke','pointer-events':'none'},f(room.lengths[i]))}}});(room.diags||[]).forEach(z=>{let p=transformed[z.i],q=transformed[z.j];if(p&&q){add('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'#888','stroke-dasharray':'7 7','stroke-width':2,'pointer-events':'none'});add('text',{x:(p[0]+q[0])/2,y:(p[1]+q[1])/2,'font-size':12,fill:'#777','pointer-events':'none'},f(z.v))}})}info.textContent=editMode==='angle'?(angleAction==='add'?'Угол: выберите сторону для добавления вершины':angleAction==='remove'?'Угол: выберите вершину для удаления':'Угол: выберите вершину для настройки'):editMode==='diagonal'?(diagonalFirst<0?'Диагональ: нажмите на первый угол':'Диагональ: угол '+letters[diagonalFirst]+' выбран. Нажмите на второй угол'):(g.ok?'S: '+f(g.area)+' м² · P: '+f(g.per)+' м':g.message||'Нажимайте в любой точке поля. Замкните контур нажатием на A.');
 svg.addEventListener('click',e=>{if(suppressClick||e.button!==0)return;let point=svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;let p=point.matrixTransform(svg.getScreenCTM().inverse());if(!Number.isFinite(p.x)||!Number.isFinite(p.y))return;let v=[p.x,p.y];if(editMode==='ruler'){if(!measureStart){measureStart=v;info.textContent='Линейка: выберите вторую точку'}else{let dist=Math.hypot(v[0]-measureStart[0],v[1]-measureStart[1]);info.textContent='Расстояние на схеме: '+f(dist)+' усл. ед. (не сантиметры до калибровки)';measureStart=null}return}if(editMode!=='draw'||closed)return;if(room.pts.length>=3&&Math.hypot(v[0]-room.pts[0][0])<Math.min(22,Math.max(6,zoomView.w*.012))&&Math.hypot(v[1]-room.pts[0][1])<Math.min(22,Math.max(6,zoomView.w*.012))){remember();room.closed=true;closed=true;room.lengths=Array(room.pts.length).fill(null);storeRoom();roomPage();editSide(0);return}if(room.pts.length>=26)return alert('Максимум 26 вершин');v=snapRight(v);remember();room.pts.push(v);storeRoom();roomPage()});
-}else if(g.ok){let w=room.lengths[0],h=room.shape==='circle'?w:room.lengths[1],sc=650/Math.max(w,h),rw=w*sc,rh=h*sc;if(room.shape==='rect'){add('rect',{x:500-rw/2,y:500-rh/2,width:rw,height:rh,fill:'#edf4f2',stroke:'#30343b','stroke-width':3});let p=[[500-rw/2,500-rh/2],[500+rw/2,500-rh/2],[500+rw/2,500+rh/2],[500-rw/2,500+rh/2]];p.forEach((v,i)=>add('text',{x:v[0]+8,y:v[1]-10,'font-size':22,fill:'#30343b'},letters[i]));[[500,500-rh/2,w],[500+rw/2,500,h],[500,500+rh/2,w],[500-rw/2,500,h]].forEach(([x,y,n])=>{add('rect',{x:x-30,y:y-17,width:60,height:30,fill:'white'});add('text',{x,y:y+5,'text-anchor':'middle','font-size':20,fill:'#555'},f(n))})}else{add('ellipse',{cx:500,cy:500,rx:rw/2,ry:rh/2,fill:'#edf4f2',stroke:'#30343b','stroke-width':3});add('text',{x:500,y:500,'text-anchor':'middle','font-size':22,fill:'#555'},room.shape==='circle'?'Ø '+f(w)+' см':f(w)+' × '+f(h)+' см')}info.textContent='S: '+f(g.area)+' м² · P: '+f(g.per)+' м'}else info.textContent='Введите размеры потолка';}
-function close(){app.classList.add('hidden');app.innerHTML='';goBack()}
+}else if(g.ok){let w=room.lengths[0],h=room.shape==='circle'?w:room.lengths[1],sc=650/Math.max(w,h),rw=w*sc,rh=h*sc;if(room.shape==='rect'){add('rect',{x:500-rw/2,y:500-rh/2,width:rw,height:rh,fill:'#edf4f2',stroke:'#30343b','stroke-width':3});let p=[[500-rw/2,500-rh/2],[500+rw/2,500-rh/2],[500+rw/2,500+rh/2],[500-rw/2,500+rh/2]];p.forEach((v,i)=>add('text',{x:v[0]+8,y:v[1]-10,'font-size':13,fill:'#30343b'},letters[i]));[[500,500-rh/2,w],[500+rw/2,500,h],[500,500+rh/2,w],[500-rw/2,500,h]].forEach(([x,y,n])=>{add('text',{x,y:y+4,'text-anchor':'middle','font-size':13,fill:'#555',stroke:'#fff','stroke-width':4,'paint-order':'stroke'},f(n))})}else{add('ellipse',{cx:500,cy:500,rx:rw/2,ry:rh/2,fill:'#edf4f2',stroke:'#30343b','stroke-width':3});add('text',{x:500,y:500,'text-anchor':'middle','font-size':14,fill:'#555'},room.shape==='circle'?'Ø '+f(w)+' см':f(w)+' × '+f(h)+' см')}info.textContent='S: '+f(g.area)+' м² · P: '+f(g.per)+' м'}else info.textContent='Введите размеры потолка';}
+if(lastFittedRoom!==room){lastFittedRoom=room;requestAnimationFrame(()=>{if(app.contains(svg))fitDrawing()})}
+function close(){lastFittedRoom=null;app.classList.add('hidden');app.innerHTML='';goBack()}
 window.openEditor=id=>{let r=read().find(x=>x.id===id);obj=r?JSON.parse(JSON.stringify(r)):{id:String(Date.now()),client:'',phone:'+7',address:'',date:'',time:'',remind:'3',status:'Запланирован',rooms:[]};obj.rooms??=[];app.classList.remove('hidden');objectPage()};
 document.getElementById('new').onclick=()=>window.openEditor(null);
 let viewButtons=[document.getElementById('viewList'),document.getElementById('viewGrid')];function updateView(){let grid=localStorage.getItem('boss-view-mode')==='grid';document.getElementById('items').classList.toggle('compact-grid',grid);viewButtons[0].classList.toggle('on',!grid);viewButtons[1].classList.toggle('on',grid)}viewButtons.forEach((v,i)=>v.onclick=()=>{localStorage.setItem('boss-view-mode',i?'grid':'list');updateView()});updateView();
