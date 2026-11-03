@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Босс Потолок PRO — редактор</title>
+<style>
+:root{font-family:system-ui,Arial;background:#101827;color:#f1f5f9}*{box-sizing:border-box}body{margin:0}header{padding:16px 22px;background:#172238;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px}h1{font-size:20px;margin:0}main{max-width:1200px;margin:auto;padding:18px;display:grid;grid-template-columns:300px 1fr;gap:18px}.panel,.stage{background:#172238;border-radius:14px;padding:18px}.panel label{display:block;margin:14px 0 5px;color:#cbd5e1}input{width:100%;padding:11px;border-radius:8px;border:1px solid #53627a;background:#0d1525;color:white;font-size:16px}button{background:#fbbf24;color:#172238;border:0;padding:11px 14px;border-radius:9px;font-weight:700;cursor:pointer;margin:8px 5px 0 0}button.secondary{background:#334155;color:white}.stats{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:18px}.stat{background:#0d1525;border-radius:9px;padding:12px}.stat strong{display:block;font-size:21px;color:#fbbf24;margin-top:4px}.stage svg{width:100%;height:auto;background:#0d1525;border-radius:10px;touch-action:none}.hint{color:#94a3b8;font-size:13px;line-height:1.5}.stage h2{margin:0 0 12px;font-size:18px}@media(max-width:760px){main{grid-template-columns:1fr;padding:10px}.panel,.stage{padding:13px}}
+@media print{header,.panel button,.hint{display:none}body,.panel,.stage{background:white;color:black}main{display:block}.stage svg{background:white;border:1px solid #ddd}}
+</style></head><body>
+<header><h1>Босс Потолок PRO</h1><span>Тестовый редактор потолков · v0.1</span></header>
+<main><section class="panel"><h2>Размеры помещения</h2>
+<label for="w">Ширина, м</label><input id="w" type="number" min=".1" max="100" step=".1" value="4">
+<label for="h">Длина, м</label><input id="h" type="number" min=".1" max="100" step=".1" value="5">
+<button id="draw">Построить</button><button id="save" class="secondary">Сохранить</button>
+<button id="print" class="secondary">Печать / PDF</button>
+<div class="stats"><div class="stat">Площадь<strong id="area">—</strong></div><div class="stat">Периметр<strong id="perimeter">—</strong></div><div class="stat">Диагональ<strong id="diagonal">—</strong></div><div class="stat">Форма<strong>Прямоугольник</strong></div></div>
+<p class="hint">Первая тестовая версия: прямоугольное помещение, размеры и расчёты. Сохранение работает в этом браузере. Произвольные контуры, светильники, сметы и аккаунты добавим позже.</p>
+</section><section class="stage"><h2>Чертёж потолка</h2><svg id="plan" viewBox="0 0 700 530" role="img" aria-label="Чертёж помещения"><defs><pattern id="grid" width="25" height="25" patternUnits="userSpaceOnUse"><path d="M 25 0 L 0 0 0 25" fill="none" stroke="#273449" stroke-width="1"/></pattern></defs><rect width="700" height="530" fill="url(#grid)"/><g id="shape"></g></svg><p class="hint">Чертёж масштабируется автоматически. Все размеры указаны в метрах.</p></section></main>
+<script>
+const $=id=>document.getElementById(id),fmt=n=>Number(n.toFixed(2)).toLocaleString('ru-RU');
+function render(){const w=Number($('w').value),h=Number($('h').value);if(!(w>0&&h>0&&w<=100&&h<=100)){alert('Введите размеры от 0,1 до 100 метров');return}
+$('area').textContent=fmt(w*h)+' м²';$('perimeter').textContent=fmt(2*(w+h))+' м';$('diagonal').textContent=fmt(Math.hypot(w,h))+' м';
+const scale=Math.min(510/w,370/h),rw=w*scale,rh=h*scale,x=(700-rw)/2,y=(530-rh)/2;
+$('shape').innerHTML=`<rect x="${x}" y="${y}" width="${rw}" height="${rh}" fill="#fbbf2422" stroke="#fbbf24" stroke-width="4"/><text x="350" y="${y-20}" text-anchor="middle" fill="#e2e8f0" font-size="19">${fmt(w)} м</text><text x="${x-16}" y="265" text-anchor="middle" transform="rotate(-90 ${x-16} 265)" fill="#e2e8f0" font-size="19">${fmt(h)} м</text><text x="350" y="265" text-anchor="middle" fill="#fbbf24" font-size="25">${fmt(w*h)} м²</text>`}
+$('draw').onclick=render;$('save').onclick=()=>{localStorage.setItem('boss-ceiling-room',JSON.stringify({w:$('w').value,h:$('h').value}));alert('Размеры сохранены в этом браузере')};$('print').onclick=()=>window.print();
+try{const s=JSON.parse(localStorage.getItem('boss-ceiling-room'));if(s){$('w').value=s.w;$('h').value=s.h}}catch(e){}render();
+</script></body></html>
