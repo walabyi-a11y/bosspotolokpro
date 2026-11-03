@@ -87,13 +87,46 @@ render();
 @media(max-width:800px){#proApp .workspace{display:block;height:calc(100dvh - 118px);min-height:0}#proApp .work-main{height:100%}#proApp .work-side{display:none;position:fixed;z-index:36;left:0;right:0;bottom:0;max-height:85dvh;overflow:auto;border-radius:20px 20px 0 0;box-shadow:0 -15px 50px #0004;padding:20px}#proApp .work-side.open{display:block}#proApp .mobile-settings{display:inline-block}#proApp .proBody{padding:6px 9px}#proApp .work-header b{font-size:15px}#proApp .work-header{gap:4px}#proApp .work-tools button{font-size:11px;padding:7px 5px}#proApp .proCanvas{min-height:0}}
 @media(max-width:600px){#items.compact-grid .item{padding:9px}#items.compact-grid .item strong{font-size:13px}#items.compact-grid .item .muted{font-size:11px}#proApp .work-info{font-size:13px}}
 </style>
+
+<style id="boss-layout-fix">
+/* Исправление геометрии экрана: рабочая область занимает свободное место, а не всю страницу */
+#proApp{overflow:hidden;display:flex;flex-direction:column;background:#f4f5f6}
+#proApp.hidden{display:none}
+#proApp .proHead{flex:0 0 56px;min-height:56px;gap:12px;padding:8px 20px;justify-content:flex-start}
+#proApp .proHead span{font-weight:700;font-size:16px}
+#proApp .proHead button{padding:8px 12px}
+#proApp .proBody{width:100%;max-width:1200px;flex:1;min-height:0;overflow:auto;padding:18px 22px;margin:0 auto}
+#proApp .proBody:has(.workspace){max-width:none;overflow:hidden;padding:12px 16px 16px}
+#proApp .workspace{height:100%;min-height:0;display:flex;flex-direction:column;gap:10px}
+#proApp .work-top-settings{flex:0 0 auto;display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px;background:#fff;border:1px solid #e1e3e6;border-radius:12px;box-shadow:0 1px 3px #00000008}
+#proApp .work-top-settings button{font-size:13px;min-height:37px;padding:8px 12px;max-width:260px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#proApp .work-top-settings .small-title{font-weight:700;font-size:14px}
+#proApp .work-main{position:relative;display:flex;flex-direction:column;flex:1;min-height:0;width:100%;border:1px solid #e0e3e5;border-radius:13px;overflow:hidden;background:#fff}
+#proApp .proCanvas{position:relative;flex:1;min-height:0;height:auto;overflow:hidden;border:0;border-radius:0;background-color:#fbfcfc;background-image:linear-gradient(#e8ecee 1px,transparent 1px),linear-gradient(90deg,#e8ecee 1px,transparent 1px);background-size:28px 28px;cursor:crosshair}
+#proApp .proCanvas svg{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none}
+#proApp .work-tools{position:absolute;top:14px;right:14px;left:auto;display:flex;flex-direction:column;gap:7px;z-index:5;max-height:calc(100% - 25px);overflow:auto;max-width:148px;padding:2px}
+#proApp .work-tools button{background:#fff;border:1px solid #d8dde0;border-radius:9px;box-shadow:0 2px 6px #00000010;min-width:90px;padding:10px 12px;font-size:13px;text-align:center;white-space:normal}
+#proApp .work-tools button:hover{background:#eef4f2}
+#proApp .work-info{flex:0 0 auto;min-height:44px;padding:12px 18px;font-size:15px;color:#146a52;background:#f0f7f4;border-top:1px solid #dcebe4;font-weight:700}
+#proApp .proModal{z-index:60}
+#proApp .proBox{max-height:90dvh;overflow:auto}
+@media(max-width:800px){
+ #proApp .proHead{flex-basis:50px;min-height:50px;padding:6px 10px}
+ #proApp .proBody:has(.workspace){padding:6px 7px 8px}
+ #proApp .work-top-settings{padding:7px;gap:5px;max-height:145px;overflow:auto}
+ #proApp .work-top-settings button{font-size:11px;min-height:32px;padding:6px 8px;max-width:160px}
+ #proApp .work-tools{top:8px;right:8px;gap:5px;max-width:98px}
+ #proApp .work-tools button{min-width:72px;padding:7px 5px;font-size:11px}
+ #proApp .work-info{font-size:12px;min-height:37px;padding:9px 10px}
+}
+</style>
 <script>
 (()=>{
 const app=document.getElementById('proApp'),key='boss-potolok-pro-measurements-v2';
 let obj=null,idx=-1,room=null,closed=false,settingsOpen=false;
 const roomNamesDefault=['Кухня','Спальня','Детская','Коридор','Прихожая','Ванная','Туалет','Кабинет','Постирочная','Гардероб','Балкон','Лоджия'];
 const catalogKey='boss-potolok-pro-catalog-v1',namesKey='boss-potolok-pro-room-names-v1';
-const loadArray=(k,def=[])=>{try{let v=JSON.parse(localStorage.getItem(k)||'null');return Array.isArray(v)?v:def}catch{return def}};
+const loadArray=(k,def=[])=>{try{let v=JSON.parse(localStorage.getItem(k)||'null');return v!==null&&typeof v==='object'&&(Array.isArray(def)?Array.isArray(v):!Array.isArray(v))?v:def}catch{return def}};
 let zoomView={x:0,y:0,w:1000,h:1000};
 const letters='ABCDEFGHIJKLMNOPQRSTUVWXYZ',f=n=>Number(n).toLocaleString('ru-RU',{maximumFractionDigits:2});
 const read=()=>{try{return JSON.parse(localStorage.getItem(key)||'[]')}catch{return []}};
@@ -150,7 +183,7 @@ function roomPage(){let body=head('Редактор помещения',leaveRoo
  svg.addEventListener('contextmenu',e=>e.preventDefault());
 const add=(tag,attrs,txt)=>{let el=document.createElementNS('http://www.w3.org/2000/svg',tag);Object.entries(attrs).forEach(([k,v])=>el.setAttribute(k,v));if(txt!==undefined)el.textContent=txt;svg.append(el);return el};
 let g=geom(room),pts=room.shape==='poly'?(g.ok?g.points:room.pts):g.points||[];if(room.shape==='poly'){if(pts.length){let xs=pts.map(v=>v[0]),ys=pts.map(v=>v[1]),minx=Math.min(...xs),maxx=Math.max(...xs),miny=Math.min(...ys),maxy=Math.max(...ys);let transformed=closed?pts.map(v=>{let sc=Math.min(790/Math.max(1,maxx-minx),790/Math.max(1,maxy-miny),4);return [(v[0]-(minx+maxx)/2)*sc+500,(v[1]-(miny+maxy)/2)*sc+500]}):pts;add('polyline',{points:transformed.map(v=>v.join(',')).join(' ')+(closed?' '+transformed[0].join(','):''),fill:closed?'#edf4f2':'none',stroke:'#30343b','stroke-width':3,'pointer-events':'none'});transformed.forEach((p,i)=>{add('circle',{cx:p[0],cy:p[1],r:5,fill:'#30343b','pointer-events':'none'});add('text',{x:p[0]+9,y:p[1]-9,'font-size':22,fill:'#30343b','pointer-events':'none'},letters[i]);if(closed){let q=transformed[(i+1)%transformed.length],mx=(p[0]+q[0])/2,my=(p[1]+q[1])/2;add('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'transparent','stroke-width':32}).addEventListener('click',e=>{e.stopPropagation();editSide(i)});if(room.lengths[i]){add('rect',{x:mx-25,y:my-17,width:50,height:30,fill:'white','pointer-events':'none'});add('text',{x:mx,y:my+5,'text-anchor':'middle','font-size':20,fill:'#555','pointer-events':'none'},f(room.lengths[i]))}}});(room.diags||[]).forEach(z=>{let p=transformed[z.i],q=transformed[z.j];if(p&&q){add('line',{x1:p[0],y1:p[1],x2:q[0],y2:q[1],stroke:'#888','stroke-dasharray':'7 7','stroke-width':2,'pointer-events':'none'});add('text',{x:(p[0]+q[0])/2,y:(p[1]+q[1])/2,'font-size':18,fill:'#777','pointer-events':'none'},f(z.v))}})}info.textContent=g.ok?'S: '+f(g.area)+' м² · P: '+f(g.per)+' м':g.message||'Нажимайте в любой точке поля. Замкните контур нажатием на A.';
-svg.addEventListener('click',e=>{if(suppressClick||closed)return;let point=svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;let p=point.matrixTransform(svg.getScreenCTM().inverse());if(!Number.isFinite(p.x)||!Number.isFinite(p.y))return;let v=[p.x,p.y];if(room.pts.length>=3&&Math.hypot(v[0]-room.pts[0][0],v[1]-room.pts[0][1])<Math.max(9,zoomView.w*.018)){room.closed=true;closed=true;room.lengths=Array(room.pts.length).fill(null);storeRoom();roomPage();editSide(0);return}if(room.pts.length>=26)return alert('Максимум 26 вершин');room.pts.push(v);storeRoom();roomPage()});
+svg.addEventListener('click',e=>{if(suppressClick||closed||e.button!==0)return;let point=svg.createSVGPoint();point.x=e.clientX;point.y=e.clientY;let p=point.matrixTransform(svg.getScreenCTM().inverse());if(!Number.isFinite(p.x)||!Number.isFinite(p.y))return;let v=[p.x,p.y];if(room.pts.length>=3&&Math.hypot(v[0]-room.pts[0][0],v[1]-room.pts[0][1])<Math.min(22,Math.max(6,zoomView.w*.012))){room.closed=true;closed=true;room.lengths=Array(room.pts.length).fill(null);storeRoom();roomPage();editSide(0);return}if(room.pts.length>=26)return alert('Максимум 26 вершин');room.pts.push(v);storeRoom();roomPage()});
 }else if(g.ok){let w=room.lengths[0],h=room.shape==='circle'?w:room.lengths[1],sc=650/Math.max(w,h),rw=w*sc,rh=h*sc;if(room.shape==='rect'){add('rect',{x:500-rw/2,y:500-rh/2,width:rw,height:rh,fill:'#edf4f2',stroke:'#30343b','stroke-width':3});let p=[[500-rw/2,500-rh/2],[500+rw/2,500-rh/2],[500+rw/2,500+rh/2],[500-rw/2,500+rh/2]];p.forEach((v,i)=>add('text',{x:v[0]+8,y:v[1]-10,'font-size':22,fill:'#30343b'},letters[i]));[[500,500-rh/2,w],[500+rw/2,500,h],[500,500+rh/2,w],[500-rw/2,500,h]].forEach(([x,y,n])=>{add('rect',{x:x-30,y:y-17,width:60,height:30,fill:'white'});add('text',{x,y:y+5,'text-anchor':'middle','font-size':20,fill:'#555'},f(n))})}else{add('ellipse',{cx:500,cy:500,rx:rw/2,ry:rh/2,fill:'#edf4f2',stroke:'#30343b','stroke-width':3});add('text',{x:500,y:500,'text-anchor':'middle','font-size':22,fill:'#555'},room.shape==='circle'?'Ø '+f(w)+' см':f(w)+' × '+f(h)+' см')}info.textContent='S: '+f(g.area)+' м² · P: '+f(g.per)+' м'}else info.textContent='Введите размеры потолка';}
 function close(){app.classList.add('hidden');app.innerHTML='';goBack()}
 window.openEditor=id=>{let r=read().find(x=>x.id===id);obj=r?JSON.parse(JSON.stringify(r)):{id:String(Date.now()),client:'',phone:'+7',address:'',date:'',time:'',remind:'3',status:'Запланирован',rooms:[]};obj.rooms??=[];app.classList.remove('hidden');objectPage()};
